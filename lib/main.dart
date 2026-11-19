@@ -1,165 +1,79 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
-void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const GymForzaApp());
+const navy=Color(0xFF101827), panel=Color(0xFF1B2638), gold=Color(0xFFE5B94B), muted=Color(0xFF9AA6B8), green=Color(0xFF65C995), red=Color(0xFFFF8585);
+const backend='https://gymforza.onrender.com/';
+const supabaseUrl=String.fromEnvironment('SUPABASE_URL');
+const supabaseKey=String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
+const storage=FlutterSecureStorage();
+
+void main(){WidgetsFlutterBinding.ensureInitialized();runApp(const GymForzaApp());}
+class GymForzaApp extends StatelessWidget{const GymForzaApp({super.key});@override Widget build(BuildContext c)=>MaterialApp(title:'Gym Forza',debugShowCheckedModeBanner:false,theme:ThemeData(brightness:Brightness.dark,scaffoldBackgroundColor:navy,colorScheme:ColorScheme.fromSeed(seedColor:gold,brightness:Brightness.dark,surface:panel),useMaterial3:true,inputDecorationTheme:InputDecorationTheme(filled:true,fillColor:panel,border:OutlineInputBorder(borderRadius:BorderRadius.circular(15),borderSide:BorderSide.none),focusedBorder:OutlineInputBorder(borderRadius:BorderRadius.circular(15),borderSide:const BorderSide(color:gold)))),home:const Gate());}
+class Session{const Session(this.token,this.refresh,this.client,this.name,this.email);final String token,refresh,client,name,email;}
+class ApiError implements Exception{const ApiError(this.message,[this.code=0]);final String message;final int code;@override String toString()=>message;}
+Map<String,dynamic> json(http.Response r){try{final x=jsonDecode(utf8.decode(r.bodyBytes));return x is Map<String,dynamic>?x:{};}catch(_){return {};}}
+String message(Map<String,dynamic> d)=> (d['message']??d['msg']??d['error_description']??d['error']??'No se pudo completar la solicitud.').toString();
+Future<Map<String,dynamic>> get(Session s,String path)async{final r=await http.get(Uri.parse(backend+path),headers:{'Authorization':'Bearer '+s.token}).timeout(const Duration(seconds:25));final d=json(r);if(r.statusCode<200||r.statusCode>299)throw ApiError(message(d),r.statusCode);return d;}
+Future<Session> login(String email,String password)async{
+ if(supabaseUrl.isEmpty||supabaseKey.isEmpty)throw const ApiError('Configura SUPABASE_URL y SUPABASE_PUBLISHABLE_KEY al compilar.');
+ final base=supabaseUrl.replaceAll(RegExp(r'/+$'),'');
+ final r=await http.post(Uri.parse(base+'/auth/v1/token?grant_type=password'),headers:{'apikey':supabaseKey,'Content-Type':'application/json'},body:jsonEncode({'email':email.trim(),'password':password})).timeout(const Duration(seconds:25));
+ final a=json(r);if(r.statusCode<200||r.statusCode>299)throw ApiError(r.statusCode==400?'Correo o contraseña incorrectos.':message(a),r.statusCode);
+ final token=(a['access_token']??'').toString();if(token.isEmpty)throw const ApiError('Supabase no devolvió un token.');
+ final mr=await http.get(Uri.parse(backend+'auth/me'),headers:{'Authorization':'Bearer '+token}).timeout(const Duration(seconds:25));final md=json(mr);
+ if(mr.statusCode<200||mr.statusCode>299)throw ApiError(mr.statusCode==403?'Tu cuenta no tiene un perfil asignado en Gym Forza.':'No se pudo verificar tu perfil.',mr.statusCode);
+ final u=md['user'] is Map?md['user'] as Map:{};if(u['role']!='client')throw const ApiError('Esta aplicación es exclusiva para socios.',403);
+ final id=(u['client_id']??'').toString();if(id.isEmpty)throw const ApiError('Tu cuenta no tiene un registro de socio asociado.',403);
+ final s=Session(token,(a['refresh_token']??'').toString(),id,(u['full_name']??'Socio Gym Forza').toString(),(u['email']??email).toString());
+ await storage.write(key:'access',value:s.token);await storage.write(key:'refresh',value:s.refresh);await storage.write(key:'client',value:s.client);await storage.write(key:'name',value:s.name);await storage.write(key:'email',value:s.email);return s;
 }
+Future<void> recover(String email)async{if(supabaseUrl.isEmpty||supabaseKey.isEmpty)throw const ApiError('Falta configurar Supabase.');final r=await http.post(Uri.parse(supabaseUrl.replaceAll(RegExp(r'/+$'),'')+'/auth/v1/recover'),headers:{'apikey':supabaseKey,'Content-Type':'application/json'},body:jsonEncode({'email':email.trim()}));if(r.statusCode<200||r.statusCode>299)throw ApiError(message(json(r)),r.statusCode);}
+Future<void> clearSession()=>storage.deleteAll();
 
-class GymForzaApp extends StatelessWidget {
-  const GymForzaApp({super.key});
+class Gate extends StatefulWidget{const Gate({super.key});@override State<Gate> createState()=>_GateState();}
+class _GateState extends State<Gate>{Session? s;bool loading=true;@override void initState(){super.initState();restore();}Future<void> restore()async{try{final t=await storage.read(key:'access'),id=await storage.read(key:'client');if(t!=null&&id!=null){final x=Session(t,await storage.read(key:'refresh')??'',id,await storage.read(key:'name')??'Socio Gym Forza',await storage.read(key:'email')??'');try{final d=await get(x,'auth/me');final u=d['user'] is Map?d['user'] as Map:{};if(u['role']=='client'&&u['client_id']==id)s=x;else await clearSession();}catch(_){s=x;}}}finally{if(mounted)setState(()=>loading=false);}}@override Widget build(BuildContext c)=>loading?const Scaffold(body:Center(child:CircularProgressIndicator(color:gold))):s==null?Login(onLogin:(v)=>setState(()=>s=v)):Shell(s:s!,onLogout:()async{await clearSession();if(mounted)setState(()=>s=null);});}
 
-  @override
-  Widget build(BuildContext context) {
-    const navy = Color(0xFF101827);
-    const gold = Color(0xFFE5B94B);
-    return MaterialApp(
-      title: 'Gym Forza',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: navy,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: gold,
-          brightness: Brightness.dark,
-          surface: const Color(0xFF1B2638),
-        ),
-        useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: navy,
-          foregroundColor: Colors.white,
-          elevation: 0,
-        ),
-      ),
-      home: const AuthGate(),
-    );
-  }
-}
+class Login extends StatefulWidget{const Login({super.key,required this.onLogin});final ValueChanged<Session> onLogin;@override State<Login> createState()=>_LoginState();}
+class _LoginState extends State<Login>{final email=TextEditingController(),password=TextEditingController();bool busy=false,hide=true;@override void dispose(){email.dispose();password.dispose();super.dispose();}void snack(String s)=>ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(s)));Future<void> submit()async{if(email.text.trim().isEmpty||password.text.isEmpty){snack('Escribe tu correo y contraseña.');return;}setState(()=>busy=true);try{widget.onLogin(await login(email.text,password.text));}catch(e){snack(e.toString());}finally{if(mounted)setState(()=>busy=false);}}Future<void> forgot()async{if(email.text.trim().isEmpty){snack('Escribe tu correo primero.');return;}setState(()=>busy=true);try{await recover(email.text);snack('Si el correo está registrado, recibirás instrucciones para recuperar tu contraseña.');}catch(e){snack(e.toString());}finally{if(mounted)setState(()=>busy=false);}}
+@override Widget build(BuildContext c)=>Scaffold(body:SafeArea(child:Center(child:SingleChildScrollView(padding:const EdgeInsets.all(26),child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:420),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[Container(width:76,height:76,alignment:Alignment.center,decoration:BoxDecoration(color:panel,borderRadius:BorderRadius.circular(24),border:Border.all(color:gold.withValues(alpha:.35))),child:const Icon(Icons.fitness_center,color:gold,size:34)),const SizedBox(height:34),const Text('GYM FORZA',style:TextStyle(color:gold,letterSpacing:3,fontWeight:FontWeight.w800)),const SizedBox(height:12),const Text('Tu espacio.\nTu progreso.',style:TextStyle(fontSize:34,height:1.12,fontWeight:FontWeight.w800)),const SizedBox(height:12),const Text('Inicia sesión para consultar tu membresía y acceder al gimnasio.',style:TextStyle(color:muted,height:1.5)),const SizedBox(height:32),TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Correo electrónico',prefixIcon:Icon(Icons.mail_outline))),const SizedBox(height:14),TextField(controller:password,obscureText:hide,onSubmitted:(_)=>submit(),decoration:InputDecoration(labelText:'Contraseña',prefixIcon:const Icon(Icons.lock_outline),suffixIcon:IconButton(onPressed:()=>setState(()=>hide=!hide),icon:Icon(hide?Icons.visibility_outlined:Icons.visibility_off_outlined)))),Align(alignment:Alignment.centerRight,child:TextButton(onPressed:busy?null:forgot,child:const Text('¿Olvidaste tu contraseña?',style:TextStyle(color:gold)))),const SizedBox(height:12),FilledButton(onPressed:busy?null:submit,style:FilledButton.styleFrom(backgroundColor:gold,foregroundColor:navy,minimumSize:const Size.fromHeight(54)),child:busy?const SizedBox(width:22,height:22,child:CircularProgressIndicator(strokeWidth:2,color:navy)):const Text('Iniciar sesión')),const SizedBox(height:22),const Text('Acceso exclusivo para socios Gym Forza',textAlign:TextAlign.center,style:TextStyle(color:muted,fontSize:12))]))))));}
 
-class AuthGate extends StatefulWidget {
-  const AuthGate({super.key});
-  @override
-  State<AuthGate> createState() => _AuthGateState();
-}
+class Shell extends StatefulWidget{const Shell({super.key,required this.s,required this.onLogout});final Session s;final Future<void> Function() onLogout;@override State<Shell> createState()=>_ShellState();}
+class _ShellState extends State<Shell>{int i=0;@override Widget build(BuildContext c){final pages=[Home(s:widget.s,onTab:(v)=>setState(()=>i=v)),Membership(s:widget.s),Payments(s:widget.s),Profile(s:widget.s,onLogout:widget.onLogout)];return Scaffold(body:SafeArea(child:IndexedStack(index:i,children:pages)),bottomNavigationBar:NavigationBar(selectedIndex:i,onDestinationSelected:(v)=>setState(()=>i=v),backgroundColor:const Color(0xFF172235),indicatorColor:gold.withValues(alpha:.14),destinations:const [NavigationDestination(icon:Icon(Icons.home_outlined),label:'Inicio'),NavigationDestination(icon:Icon(Icons.credit_card_outlined),label:'Membresía'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'Pagos'),NavigationDestination(icon:Icon(Icons.person_outline),label:'Perfil')]));}}
 
-class _AuthGateState extends State<AuthGate> {
-  @override
-  Widget build(BuildContext context) => const LoginScreen();
-}
+class Home extends StatefulWidget{const Home({super.key,required this.s,required this.onTab});final Session s;final ValueChanged<int> onTab;@override State<Home> createState()=>_HomeState();}
+class _HomeState extends State<Home>{Map<String,dynamic>? m;bool busy=true;String? error;@override void initState(){super.initState();load();}Future<void> load()async{setState(()=>busy=true);try{final d=await get(widget.s,'auth/my-membership');m=d['membership'] is Map?Map<String,dynamic>.from(d['membership']):null;error=m==null?'Todavía no tienes una membresía registrada.':null;}catch(e){error=e.toString();}finally{if(mounted)setState(()=>busy=false);}}
+@override Widget build(BuildContext c)=>RefreshIndicator(color:gold,onRefresh:load,child:ListView(padding:const EdgeInsets.all(20),children:[const Text('GYM FORZA',style:TextStyle(color:gold,fontSize:11,fontWeight:FontWeight.bold,letterSpacing:2)),const SizedBox(height:8),const Text('Tu espacio.',style:TextStyle(fontSize:28,fontWeight:FontWeight.bold)),const Text('Tu progreso empieza aquí.',style:TextStyle(color:muted,fontSize:13)),const SizedBox(height:24),if(busy)const Center(child:CircularProgressIndicator(color:gold))else if(error!=null)ErrorBox(error!,load)else Box(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('HOLA, '+(m?['full_name']??widget.s.name).toString().split(' ').first.toUpperCase(),style:const TextStyle(color:gold,fontSize:11,fontWeight:FontWeight.bold)),const SizedBox(height:10),Text((m?['plan_name']??'Tu membresía').toString(),style:const TextStyle(fontSize:22,fontWeight:FontWeight.bold)),const SizedBox(height:12),Text(active(m?['membership_status'],m?['end_date'])?'Membresía vigente':'Revisa el estado de tu membresía',style:const TextStyle(color:green)),const Divider(height:28),const Text('Vence el',style:TextStyle(color:muted,fontSize:12)),Text(date(m?['end_date']),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text('Último pago: '+money(m?['last_payment_amount']),style:const TextStyle(color:muted,fontSize:12))])),const SizedBox(height:24),const Text('Accesos rápidos',style:TextStyle(fontSize:17,fontWeight:FontWeight.bold)),const SizedBox(height:12),Tile(Icons.qr_code_2,'Mi código de acceso','Genera un QR temporal para entrar',()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>QrPage(s:widget.s)))),const SizedBox(height:10),Tile(Icons.credit_card,'Mi membresía','Consulta tu plan y vigencia',()=>widget.onTab(1)),const SizedBox(height:10),Tile(Icons.receipt_long,'Historial de pagos','Revisa tus pagos registrados',()=>widget.onTab(2)),TextButton.icon(onPressed:load,icon:const Icon(Icons.refresh,color:gold),label:const Text('Actualizar información',style:TextStyle(color:gold)))]));}}
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
-  @override
-  State<LoginScreen> createState() => _LoginScreenState();
-}
+class Membership extends StatefulWidget{const Membership({super.key,required this.s});final Session s;@override State<Membership> createState()=>_MembershipState();}
+class _MembershipState extends State<Membership>{Map<String,dynamic>? m;bool busy=true;String? error;@override void initState(){super.initState();load();}Future<void> load()async{setState(()=>busy=true);try{final d=await get(widget.s,'auth/my-membership');m=d['membership'] is Map?Map<String,dynamic>.from(d['membership']):null;error=m==null?'No hay membresía registrada.':null;}catch(e){error=e.toString();}finally{if(mounted)setState(()=>busy=false);}}
+@override Widget build(BuildContext c)=>RefreshIndicator(color:gold,onRefresh:load,child:ListView(padding:const EdgeInsets.all(20),children:[const Heading('TU PLAN','Mi membresía','Consulta los detalles de tu acceso al gimnasio.'),const SizedBox(height:22),if(busy)const Center(child:CircularProgressIndicator(color:gold))else if(error!=null)ErrorBox(error!,load)else Box(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('PLAN ACTUAL',style:TextStyle(color:gold,fontSize:11,fontWeight:FontWeight.bold)),const SizedBox(height:8),Text((m?['plan_name']??'Membresía').toString(),style:const TextStyle(fontSize:24,fontWeight:FontWeight.bold)),const SizedBox(height:15),Text(active(m?['membership_status'],m?['end_date'])?'ACTIVA':'REVISAR ESTADO',style:const TextStyle(color:green,fontWeight:FontWeight.bold)),const SizedBox(height:16),Detail('Titular',(m?['full_name']??'—').toString()),Detail('Inicio',date(m?['start_date'])),Detail('Vencimiento',date(m?['end_date'])),Detail('Cuota mensual',money(m?['monthly_fee'])),Detail('Último pago',money(m?['last_payment_amount'])),Detail('Fecha de pago',date(m?['last_payment_date']))]))]));}}
 
-class _LoginScreenState extends State<LoginScreen> {
-  final _email = TextEditingController();
-  final _password = TextEditingController();
-  bool _loading = false;
-  bool _obscure = true;
+class Payments extends StatefulWidget{const Payments({super.key,required this.s});final Session s;@override State<Payments> createState()=>_PaymentsState();}
+class _PaymentsState extends State<Payments>{List<dynamic> items=[];bool busy=true;String? error;@override void initState(){super.initState();load();}Future<void> load()async{setState(()=>busy=true);try{final d=await get(widget.s,'auth/my-payments');items=d['payments'] is List?List.from(d['payments']):[];error=null;}catch(e){error=e.toString();}finally{if(mounted)setState(()=>busy=false);}}
+@override Widget build(BuildContext c)=>RefreshIndicator(color:gold,onRefresh:load,child:ListView(padding:const EdgeInsets.all(20),children:[const Heading('TUS MOVIMIENTOS','Historial de pagos','Consulta los pagos registrados en tu cuenta.'),const SizedBox(height:20),if(busy)const Center(child:CircularProgressIndicator(color:gold))else if(error!=null)ErrorBox(error!,load)else if(items.isEmpty)const Box(child:Text('Aún no hay pagos registrados. Cuando recepción registre un pago, aparecerá aquí.',style:TextStyle(color:muted)))else ...items.map((v){final p=Map<String,dynamic>.from(v as Map);return Padding(padding:const EdgeInsets.only(bottom:12),child:Box(child:Column(children:[Row(children:[const Expanded(child:Text('Pago registrado')),Text(money(p['amount']),style:const TextStyle(color:gold,fontSize:18,fontWeight:FontWeight.bold))]),Text(date(p['paid_at']),style:const TextStyle(color:muted,fontSize:12)),const Divider(height:24),Detail('Periodo',date(p['period_start'])+' – '+date(p['period_end'])),Detail('Método',(p['payment_method']??'No especificado').toString())])));})]));}}
 
-  @override
-  void dispose() {
-    _email.dispose();
-    _password.dispose();
-    super.dispose();
-  }
+class Profile extends StatefulWidget{const Profile({super.key,required this.s,required this.onLogout});final Session s;final Future<void> Function() onLogout;@override State<Profile> createState()=>_ProfileState();}
+class _ProfileState extends State<Profile>{String name='',email='',?photo;bool busy=true,uploading=false;String? error;@override void initState(){super.initState();name=widget.s.name;email=widget.s.email;load();}Future<void> load()async{setState(()=>busy=true);try{final d=await get(widget.s,'auth/me');final u=d['user'] is Map?d['user'] as Map:{};name=(u['full_name']??name).toString();email=(u['email']??email).toString();try{final p=await get(widget.s,'photos/client/'+widget.s.client);photo=p['photo_url']?.toString();}on ApiError catch(e){if(e.code==404)photo=null;else rethrow;}error=null;}catch(e){error=e.toString();}finally{if(mounted)setState(()=>busy=false);}}
+Future<void> pick()async{final f=await ImagePicker().pickImage(source:ImageSource.gallery,imageQuality:85,maxWidth:1600);if(f==null)return;setState(()=>uploading=true);try{final req=http.MultipartRequest('POST',Uri.parse(backend+'photos/client/'+widget.s.client))..headers['Authorization']='Bearer '+widget.s.token;req.files.add(await http.MultipartFile.fromPath('photo',f.path));final r=await http.Response.fromStream(await req.send());if(r.statusCode<200||r.statusCode>299)throw ApiError(message(json(r)),r.statusCode);await load();snack('Fotografía actualizada.');}catch(e){snack(e is ApiError&&e.code==403?'El servidor actual solo permite que un administrador actualice fotografías.':e.toString());}finally{if(mounted)setState(()=>uploading=false);}}
+void snack(String v)=>ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(v)));
+@override Widget build(BuildContext c)=>RefreshIndicator(color:gold,onRefresh:load,child:ListView(padding:const EdgeInsets.all(20),children:[const Heading('TU CUENTA','Mi perfil','Administra tu información de acceso.'),const SizedBox(height:22),Box(child:Column(children:[Row(children:[CircleAvatar(radius:36,backgroundColor:navy,backgroundImage:photo==null?null:NetworkImage(photo!),child:photo==null?Text(initials(name),style:const TextStyle(color:gold,fontSize:21)):null),const SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(name,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:17)),Text(email,style:const TextStyle(color:muted,fontSize:12))]))]),const SizedBox(height:18),OutlinedButton.icon(onPressed:uploading?null:pick,icon:const Icon(Icons.photo_camera_outlined),label:Text(uploading?'Subiendo...':'Actualizar fotografía'),style:OutlinedButton.styleFrom(foregroundColor:gold,minimumSize:const Size.fromHeight(48))),const SizedBox(height:8),const Text('El servidor actual restringe la subida de fotos a administradores.',style:TextStyle(color:muted,fontSize:11))])),if(busy)const Center(child:CircularProgressIndicator(color:gold)),if(error!=null)ErrorBox(error!,load),const SizedBox(height:18),OutlinedButton.icon(onPressed:()async{final ok=await showDialog<bool>(context:context,builder:(d)=>AlertDialog(title:const Text('Cerrar sesión'),content:const Text('¿Quieres salir de tu cuenta?'),actions:[TextButton(onPressed:()=>Navigator.pop(d,false),child:const Text('Cancelar')),FilledButton(onPressed:()=>Navigator.pop(d,true),child:const Text('Salir'))]));if(ok==true)await widget.onLogout();},icon:const Icon(Icons.logout),label:const Text('Cerrar sesión'),style:OutlinedButton.styleFrom(foregroundColor:red,minimumSize:const Size.fromHeight(50)))]));}}
 
-  @override
-  Widget build(BuildContext context) {
-    const gold = Color(0xFFE5B94B);
-    return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 32),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(
-                    width: 76,
-                    height: 76,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1B2638),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: gold.withValues(alpha: .35)),
-                    ),
-                    child: const Icon(Icons.fitness_center, color: gold, size: 34),
-                  ),
-                  const SizedBox(height: 34),
-                  const Text('GYM FORZA',
-                      style: TextStyle(color: gold, letterSpacing: 3, fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 12),
-                  const Text('Tu espacio.\nTu progreso.',
-                      style: TextStyle(fontSize: 34, height: 1.12, fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 12),
-                  const Text('Inicia sesión para consultar tu membresía y acceder al gimnasio.',
-                      style: TextStyle(color: Color(0xFF9AA6B8), height: 1.5)),
-                  const SizedBox(height: 32),
-                  TextField(
-                    controller: _email,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: _decoration('Correo electrónico', Icons.mail_outline),
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: _password,
-                    obscureText: _obscure,
-                    decoration: _decoration('Contraseña', Icons.lock_outline).copyWith(
-                      suffixIcon: IconButton(
-                        onPressed: () => setState(() => _obscure = !_obscure),
-                        icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-                      ),
-                    ),
-                    onSubmitted: (_) => _login(),
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton(
-                    onPressed: _loading ? null : _login,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: gold,
-                      foregroundColor: const Color(0xFF101827),
-                      minimumSize: const Size.fromHeight(54),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                    ),
-                    child: _loading
-                        ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('Iniciar sesión', style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(height: 22),
-                  const Text('Acceso exclusivo para socios Gym Forza',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Color(0xFF718096), fontSize: 12)),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+class QrPage extends StatefulWidget{const QrPage({super.key,required this.s});final Session s;@override State<QrPage> createState()=>_QrPageState();}
+class _QrPageState extends State<QrPage>{String? token;DateTime? expires;bool busy=false;String? error;@override void initState(){super.initState();generate();}Future<void> generate()async{setState((){busy=true;token=null;error=null;});try{final r=await http.post(Uri.parse(backend+'qr/request'),headers:{'Authorization':'Bearer '+widget.s.token}).timeout(const Duration(seconds:25));final d=json(r);if(r.statusCode<200||r.statusCode>299)throw ApiError(message(d),r.statusCode);final q=d['qr'] is Map?d['qr'] as Map:{};token=(q['token']??'').toString();expires=DateTime.tryParse((q['expires_at']??'').toString())?.toLocal();if(token!.isEmpty)throw const ApiError('El servidor no devolvió un código válido.');}catch(e){error=e.toString();}finally{if(mounted)setState(()=>busy=false);}}
+@override Widget build(BuildContext c)=>Scaffold(appBar:AppBar(title:const Text('Mi código QR')),body:ListView(padding:const EdgeInsets.all(20),children:[const Heading('ACCESO AL GIMNASIO','Mi código QR','Genera un código temporal para validar tu entrada.'),const SizedBox(height:24),Box(child:Column(children:[if(busy)const SizedBox(height:240,child:Center(child:CircularProgressIndicator(color:gold)))else if(token!=null)Container(color:Colors.white,padding:const EdgeInsets.all(10),child:QrImageView(data:token!,size:225,backgroundColor:Colors.white))else Padding(padding:const EdgeInsets.all(25),child:Text(error??'Genera un código para ingresar.',style:const TextStyle(color:red))),if(token!=null)...[const SizedBox(height:16),const Text('Código listo para escanear'),Text(expires==null?'Vigencia de cinco minutos':'Válido hasta: '+DateFormat('dd/MM/yyyy HH:mm').format(expires!),style:const TextStyle(color:muted,fontSize:12))],const SizedBox(height:18),FilledButton(onPressed:busy?null:generate,style:FilledButton.styleFrom(backgroundColor:gold,foregroundColor:navy,minimumSize:const Size.fromHeight(50)),child:Text(token==null?'Generar código QR':'Generar otro código'))])),const SizedBox(height:14),const Text('Por seguridad, el código tiene una vigencia de cinco minutos.',style:TextStyle(color:muted,fontSize:12))]));}}
 
-  InputDecoration _decoration(String label, IconData icon) => InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: const Color(0xFF9AA6B8)),
-        filled: true,
-        fillColor: const Color(0xFF1B2638),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
-      );
-
-  Future<void> _login() async {
-    // La autenticación y persistencia segura se conectarán al servicio de Supabase.
-    if (_email.text.trim().isEmpty || _password.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Escribe tu correo y contraseña.')),
-      );
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('La conexión con Supabase se está integrando.')),
-    );
-  }
-}
+class Box extends StatelessWidget{const Box({super.key,required this.child});final Widget child;@override Widget build(BuildContext c)=>Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:panel,borderRadius:BorderRadius.circular(18)),child:child);}
+class Heading extends StatelessWidget{const Heading(this.k,this.t,this.s,{super.key});final String k,t,s;@override Widget build(BuildContext c)=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(k,style:const TextStyle(color:gold,fontSize:11,fontWeight:FontWeight.bold,letterSpacing:1.5)),const SizedBox(height:8),Text(t,style:const TextStyle(fontSize:27,fontWeight:FontWeight.bold)),const SizedBox(height:6),Text(s,style:const TextStyle(color:muted,fontSize:13))]);}
+class Tile extends StatelessWidget{const Tile(this.icon,this.title,this.sub,this.tap,{super.key});final IconData icon;final String title,sub;final VoidCallback tap;@override Widget build(BuildContext c)=>Material(color:panel,borderRadius:BorderRadius.circular(16),child:InkWell(onTap:tap,borderRadius:BorderRadius.circular(16),child:Padding(padding:const EdgeInsets.all(16),child:Row(children:[Icon(icon,color:gold),const SizedBox(width:14),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:const TextStyle(fontWeight:FontWeight.w600)),Text(sub,style:const TextStyle(color:muted,fontSize:12))])),const Icon(Icons.chevron_right,color:gold)]))));}
+class Detail extends StatelessWidget{const Detail(this.k,this.v,{super.key});final String k,v;@override Widget build(BuildContext c)=>Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(k,style:const TextStyle(color:muted,fontSize:13)),Flexible(child:Text(v,textAlign:TextAlign.end,style:const TextStyle(fontSize:13,fontWeight:FontWeight.w600)))]),const Divider(color:Color(0x229AA6B8))]));}
+class ErrorBox extends StatelessWidget{const ErrorBox(this.text,this.retry,{super.key});final String text;final VoidCallback retry;@override Widget build(BuildContext c)=>Box(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(text,style:const TextStyle(color:red)),TextButton.icon(onPressed:retry,icon:const Icon(Icons.refresh,color:gold),label:const Text('Reintentar',style:TextStyle(color:gold)))]));}
+bool active(dynamic s,d){final x=DateTime.tryParse((d??'').toString());return s?.toString().toLowerCase()=='active'&&x!=null&&!x.isBefore(DateTime.now());}
+String date(dynamic v){if(v==null||v.toString().isEmpty)return '—';final x=DateTime.tryParse(v.toString());return x==null?v.toString():DateFormat('dd/MM/yyyy').format(x.toLocal());}
+String money(dynamic v){if(v==null)return '—';final n=v is num?v.toDouble():double.tryParse(v.toString());return n==null?'—':NumberFormat.currency(locale:'es_MX',symbol:r'$').format(n);}
+String initials(String n){final p=n.trim().split(RegExp(r'\s+')).where((x)=>x.isNotEmpty).take(2);final s=p.map((x)=>x[0]).join().toUpperCase();return s.isEmpty?'GF':s;}
