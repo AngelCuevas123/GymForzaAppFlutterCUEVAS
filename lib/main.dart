@@ -1,122 +1,165 @@
 import 'package:flutter/material.dart';
 
 void main() {
-  runApp(const MyApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const GymForzaApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class GymForzaApp extends StatelessWidget {
+  const GymForzaApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
+    const navy = Color(0xFF101827);
+    const gold = Color(0xFFE5B94B);
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Gym Forza',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: navy,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: gold,
+          brightness: Brightness.dark,
+          surface: const Color(0xFF1B2638),
+        ),
+        useMaterial3: true,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: navy,
+          foregroundColor: Colors.white,
+          elevation: 0,
+        ),
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const AuthGate(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<AuthGate> createState() => _AuthGateState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _AuthGateState extends State<AuthGate> {
+  @override
+  Widget build(BuildContext context) => const LoginScreen();
+}
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+  bool _loading = false;
+  bool _obscure = true;
+
+  @override
+  void dispose() {
+    _email.dispose();
+    _password.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
+    const gold = Color(0xFFE5B94B);
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
-          children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 32),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    width: 76,
+                    height: 76,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1B2638),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: gold.withValues(alpha: .35)),
+                    ),
+                    child: const Icon(Icons.fitness_center, color: gold, size: 34),
+                  ),
+                  const SizedBox(height: 34),
+                  const Text('GYM FORZA',
+                      style: TextStyle(color: gold, letterSpacing: 3, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 12),
+                  const Text('Tu espacio.\nTu progreso.',
+                      style: TextStyle(fontSize: 34, height: 1.12, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 12),
+                  const Text('Inicia sesión para consultar tu membresía y acceder al gimnasio.',
+                      style: TextStyle(color: Color(0xFF9AA6B8), height: 1.5)),
+                  const SizedBox(height: 32),
+                  TextField(
+                    controller: _email,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: _decoration('Correo electrónico', Icons.mail_outline),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _password,
+                    obscureText: _obscure,
+                    decoration: _decoration('Contraseña', Icons.lock_outline).copyWith(
+                      suffixIcon: IconButton(
+                        onPressed: () => setState(() => _obscure = !_obscure),
+                        icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                      ),
+                    ),
+                    onSubmitted: (_) => _login(),
+                  ),
+                  const SizedBox(height: 24),
+                  FilledButton(
+                    onPressed: _loading ? null : _login,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: gold,
+                      foregroundColor: const Color(0xFF101827),
+                      minimumSize: const Size.fromHeight(54),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                    ),
+                    child: _loading
+                        ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Text('Iniciar sesión', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(height: 22),
+                  const Text('Acceso exclusivo para socios Gym Forza',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Color(0xFF718096), fontSize: 12)),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ),
+    );
+  }
+
+  InputDecoration _decoration(String label, IconData icon) => InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: const Color(0xFF9AA6B8)),
+        filled: true,
+        fillColor: const Color(0xFF1B2638),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
+      );
+
+  Future<void> _login() async {
+    // La autenticación y persistencia segura se conectarán al servicio de Supabase.
+    if (_email.text.trim().isEmpty || _password.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Escribe tu correo y contraseña.')),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('La conexión con Supabase se está integrando.')),
     );
   }
 }
